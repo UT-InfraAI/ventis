@@ -24,11 +24,7 @@ def _build_import_nodes():
             names=[ast.alias(name="Future")],
             level=0,
         ),
-        ast.Import(names=[ast.alias(name="grpc")]),
         ast.Import(names=[ast.alias(name="inspect")]),
-        ast.Import(names=[ast.alias(name="json")]),
-        ast.Import(names=[ast.alias(name="local_controler_pb2")]),
-        ast.Import(names=[ast.alias(name="local_controler_pb2_grpc")]),
     ]
 
 
@@ -48,11 +44,9 @@ def _build_stub_method(func_config, agent_name):
     Generates:
         def get_stock_price(self, ticker: str) -> Future:
             \"\"\"Get the stock price for a given ticker.\"\"\"
-            request_payload = json.dumps({"service": "FinanceAgent", "function": "get_stock_price", "args": {"ticker": ticker}})
-            request = local_controler_pb2.JsonResponse(resonse=request_payload)
-            response = self.stub.Execute(request)
-            future = Future(parent=inspect.stack()[1].filename, service="FinanceAgent", method="get_stock_price")
-            return future
+            args = {"ticker": ticker.id if isinstance(ticker, Future) else ticker}
+            return Future(parent=inspect.stack()[1].filename, service="FinanceAgent",
+                          method="get_stock_price", args=args, grpc_stub=self.stub)
     """
     func_name = func_config["name"]
     description = func_config.get("description", "")
@@ -111,67 +105,9 @@ def _build_stub_method(func_config, agent_name):
         )
     )
 
-    # request_payload = json.dumps({"service": "<agent_name>", "function": "<func_name>", "args": args})
+    # return Future(parent=..., service=..., method=..., args=args)
     body.append(
-        ast.Assign(
-            targets=[ast.Name(id="request_payload")],
-            value=ast.Call(
-                func=ast.Attribute(value=ast.Name(id="json"), attr="dumps"),
-                args=[
-                    ast.Dict(
-                        keys=[
-                            ast.Constant(value="service"),
-                            ast.Constant(value="function"),
-                            ast.Constant(value="args"),
-                        ],
-                        values=[
-                            ast.Constant(value=agent_name),
-                            ast.Constant(value=func_name),
-                            ast.Name(id="args"),
-                        ],
-                    )
-                ],
-                keywords=[],
-            ),
-            lineno=0,
-        )
-    )
-
-    # request = local_controler_pb2.JsonResponse(resonse=request_payload)
-    body.append(
-        ast.Assign(
-            targets=[ast.Name(id="request")],
-            value=ast.Call(
-                func=ast.Attribute(
-                    value=ast.Name(id="local_controler_pb2"), attr="JsonResponse"
-                ),
-                args=[],
-                keywords=[ast.keyword(arg="resonse", value=ast.Name(id="request_payload"))],
-            ),
-            lineno=0,
-        )
-    )
-
-    # response = self.stub.Execute(request)
-    body.append(
-        ast.Assign(
-            targets=[ast.Name(id="response")],
-            value=ast.Call(
-                func=ast.Attribute(
-                    value=ast.Attribute(value=ast.Name(id="self"), attr="stub"),
-                    attr="Execute",
-                ),
-                args=[ast.Name(id="request")],
-                keywords=[],
-            ),
-            lineno=0,
-        )
-    )
-
-    # future = Future(parent=inspect.stack()[1].filename, service=<agent_name>, method=<func_name>, args=args)
-    body.append(
-        ast.Assign(
-            targets=[ast.Name(id="future")],
+        ast.Return(
             value=ast.Call(
                 func=ast.Name(id="Future"),
                 args=[],
@@ -207,13 +143,8 @@ def _build_stub_method(func_config, agent_name):
                     ),
                 ],
             ),
-            lineno=0,
         )
     )
-
-
-    # return future
-    body.append(ast.Return(value=ast.Name(id="future")))
 
     # Build the function def with -> Future return annotation
     func_def = ast.FunctionDef(
@@ -240,63 +171,20 @@ def _build_stub_class(agent_config):
     class_name = agent_config["name"] + "Stub"
     functions = agent_config.get("functions", [])
 
-    # __init__ method: creates gRPC channel and stub
-    # def __init__(self, host="localhost", port=50051):
-    #     self.channel = grpc.insecure_channel(f"{host}:{port}")
-    #     self.stub = local_controler_pb2_grpc.LocalControllerStub(self.channel)
-    init_body = [
-        # self.channel = grpc.insecure_channel(f"{host}:{port}")
-        ast.Assign(
-            targets=[ast.Attribute(value=ast.Name(id="self"), attr="channel")],
-            value=ast.Call(
-                func=ast.Attribute(value=ast.Name(id="grpc"), attr="insecure_channel"),
-                args=[
-                    ast.JoinedStr(
-                        values=[
-                            ast.FormattedValue(value=ast.Name(id="host"), conversion=-1),
-                            ast.Constant(value=":"),
-                            ast.FormattedValue(value=ast.Name(id="port"), conversion=-1),
-                        ]
-                    )
-                ],
-                keywords=[],
-            ),
-            lineno=0,
-        ),
-        # self.stub = local_controler_pb2_grpc.LocalControllerStub(self.channel)
-        ast.Assign(
-            targets=[ast.Attribute(value=ast.Name(id="self"), attr="stub")],
-            value=ast.Call(
-                func=ast.Attribute(
-                    value=ast.Name(id="local_controler_pb2_grpc"),
-                    attr="LocalControllerStub",
-                ),
-                args=[ast.Attribute(value=ast.Name(id="self"), attr="channel")],
-                keywords=[],
-            ),
-            lineno=0,
-        ),
-    ]
-
+    # __init__ method: simple pass, no gRPC setup needed.
+    # Future handles its own gRPC connections via env vars.
     init_method = ast.FunctionDef(
         name="__init__",
         args=ast.arguments(
             posonlyargs=[],
-            args=[
-                ast.arg(arg="self"),
-                ast.arg(arg="host", annotation=ast.Name(id="str")),
-                ast.arg(arg="port", annotation=ast.Name(id="int")),
-            ],
+            args=[ast.arg(arg="self")],
             vararg=None,
             kwonlyargs=[],
             kw_defaults=[],
             kwarg=None,
-            defaults=[
-                ast.Constant(value="localhost"),
-                ast.Constant(value=50051),
-            ],
+            defaults=[],
         ),
-        body=init_body,
+        body=[ast.Pass()],
         decorator_list=[],
         returns=None,
     )
@@ -398,7 +286,7 @@ def generate_docker(yaml_path, agent_file, output_dir=None):
     os.makedirs(output_dir, exist_ok=True)
 
     # ---- requirements.txt ------------------------------------------------
-    requirements = "grpcio\ngrpcio-tools\nredis\npyyaml\n"
+    requirements = "grpcio\ngrpcio-tools\nredis\npyyaml\nipdb\nipython\n"
     with open(os.path.join(output_dir, "requirements.txt"), "w") as f:
         f.write(requirements)
 

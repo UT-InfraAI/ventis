@@ -3,15 +3,40 @@ import json
 import uuid
 import sys
 import os
+import logging
+
+import grpc
 
 # Add utils directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "utils"))
+# Add grpc_stubs directory to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "grpc_stubs"))
 
 from redis_client import RedisClient
+import local_controler_pb2
+import local_controler_pb2_grpc
+
+logger = logging.getLogger(__name__)
 
 # defines the future object which will be returned by each function call
 class Future(object):
     redis = RedisClient()
+
+    # Single local controller connection, shared across all futures
+    _lc_host = os.environ.get("VENTIS_LC_HOST", "localhost")
+    _lc_port = os.environ.get("VENTIS_LC_PORT", "50051")
+    _channel = None
+    _stub = None
+
+    @classmethod
+    def _get_stub(cls):
+        """Get or create the cached gRPC stub for the local controller."""
+        if cls._stub is None:
+            endpoint = f"{cls._lc_host}:{cls._lc_port}"
+            cls._channel = grpc.insecure_channel(endpoint)
+            cls._stub = local_controler_pb2_grpc.LocalControllerStub(cls._channel)
+            logger.info("Connected to local controller at %s", endpoint)
+        return cls._stub
 
     def __init__(self, parent, service, method, args=None):
         """
@@ -33,7 +58,7 @@ class Future(object):
         self.args = args or {}
         self.children = []
         self.consumers = []
-
+        # For simplicity I am making a decision here, the future value only be sent back to the parent 
         # Store scalar fields in a Redis Hash: future:<id>
         self.redis.hset_multiple(self._key(), {
             "id": self.id,
@@ -43,6 +68,27 @@ class Future(object):
             "method": self.method,
             "args": json.dumps(self.args),
         })
+        # If a future is calculated, this flag will be true
+        self.calculated = False
+        # Submit the request to the local controller
+        self._submit_request()
+
+    def _submit_request(self):
+        """Send the gRPC request to the local controller."""
+        stub = self._get_stub()
+        request_payload = json.dumps({
+            "service": self.service,
+            "function": self.method,
+            "args": self.args,
+            "future_id": self.id,
+        })
+        request = local_controler_pb2.JsonResponse(resonse=request_payload)
+        try:
+            self.response = stub.Execute(request)
+            logger.debug("Submitted %s.%s (future=%s)", self.service, self.method, self.id)
+        except Exception as e:
+            logger.error("gRPC call failed for %s.%s: %s", self.service, self.method, e)
+            raise
 
     def _key(self):
         """Redis key for this future's hash."""
@@ -56,21 +102,36 @@ class Future(object):
         """Redis key for this future's consumers set."""
         return f"future:{self.id}:consumers"
 
+    def _poll_redis(self):
+        """Check Redis for a computed result and cache it locally."""
+        result = self.redis.hget(self._key(), "result")
+        if result is not None and result != "":
+            self.result = result
+        return self.result
+
     def value(self, timeout=None):
         """
         This method will block until the value is computed or the timeout is reached.
+        Returns immediately if the result is already available locally.
+        Polls Redis periodically to check for computed results.
         """
+        if self.result is not None:
+            return self.result
+
         if timeout is None:
-            # block until the value is computed
-            while self.result is None:
-                time.sleep(0.001)
+            while self._poll_redis() is None:
+                time.sleep(0.01)
         else:
             start_time = time.time()
-            while self.result is None and time.time() - start_time < timeout:
-                # I havn't completely thought about the best way to handle this
-                time.sleep(0.001)
+            while self._poll_redis() is None and time.time() - start_time < timeout:
+                time.sleep(0.01)
             if self.result is None:
                 raise TimeoutError(f"Future value not available within {timeout} seconds")
+        self.calculated = True
+
+        # Push result to all consumers
+        self._notify_consumers()
+
         return self.result
 
     # def __call__(self, timeout=None):
@@ -82,20 +143,6 @@ class Future(object):
         This method will return True if the value is computed, False otherwise.
         """
         return self.result is not None
-
-    def _get_children(self):
-        """Return the list of children futures from Redis."""
-        return self.redis.smembers(self._children_key())
-
-    def _add_child(self, child):
-        """Add a child future."""
-        self.children.append(child)
-        self.redis.sadd(self._children_key(), child)
-
-    def _remove_child(self, child):
-        """Remove a child future."""
-        self.children.remove(child)
-        self.redis.srem(self._children_key(), child)
 
     def _get_consumers(self):
         """Return the list of consumers from Redis."""

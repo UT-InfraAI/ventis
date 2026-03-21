@@ -520,7 +520,7 @@ class GlobalController(object):
                 redis_host_for_container = "host.docker.internal" if host in ("localhost", "127.0.0.1") else host
 
                 cmd = [
-                    "docker", "run", "-d",
+                    "docker", "run", "-d", "-it",
                     "--rm",
                     "--add-host=host.docker.internal:host-gateway",
                     "--name", container_name,

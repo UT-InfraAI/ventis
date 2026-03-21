@@ -32,12 +32,34 @@ class LocalControllerServicer(local_controler_pb2_grpc.LocalControllerServicer):
 
     def __init__(self):
         self.request_queue = queue.Queue()
+        # Redis client for writing results back to local Redis
+        redis_host = os.environ.get("VENTIS_REDIS_HOST", "localhost")
+        redis_port = int(os.environ.get("VENTIS_REDIS_PORT", 6379))
+        # Add utils to path for RedisClient
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "utils"))
+        from redis_client import RedisClient
+        self.redis = RedisClient(host=redis_host, port=redis_port)
 
     def Execute(self, request, context):
         """Accept an Execute request and push it into the queue."""
         logger.info(f"Received request: {request.resonse}")
         self.request_queue.put(request.resonse)
         return local_controler_pb2.JsonResponse(resonse="Request queued successfully")
+
+    def WriteResult(self, request, context):
+        """Accept a result from a remote controller and write it to local Redis."""
+        try:
+            data = json.loads(request.resonse)
+            future_id = data.get("future_id")
+            result = data.get("result")
+            if future_id and result is not None:
+                self.redis.hset(f"future:{future_id}", "result", result)
+                logger.info("WriteResult: wrote result for future %s", future_id)
+            else:
+                logger.error("WriteResult: missing future_id or result in %s", data)
+        except Exception as e:
+            logger.error("WriteResult failed: %s", e)
+        return local_controler_pb2.JsonResponse(resonse="Result written")
 
 
 def start_server(port=50051):
