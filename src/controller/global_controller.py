@@ -129,7 +129,7 @@ class GlobalController(object):
     # ------------------------------------------------------------------ #
 
     def _build_routing_table(self):
-        """Write the routing table to Redis from the current controller list."""
+        """Write the routing table to Redis on every node."""
         table = {}
         for ctrl in self.controllers:
             name = ctrl["name"]
@@ -141,19 +141,21 @@ class GlobalController(object):
             endpoint = f"{rt_host}:{port}"
             table[name] = endpoint
 
-        # Write the hash: service_name -> host:port
-        if table:
-            self.redis.hset_multiple(self.ROUTING_TABLE_KEY, table)
+        # Write to every node's Redis so each local controller can look up
+        # the full routing table from its own Redis instance.
+        targets = list(self.node_redis.values()) if self.node_redis else [self.redis]
+        for redis_client in targets:
+            if table:
+                redis_client.hset_multiple(self.ROUTING_TABLE_KEY, table)
 
-        # Write the set of service names
-        # Clear stale entries first, then re-add
-        existing = self.redis.smembers(self.SERVICES_SET_KEY)
-        for stale in existing - set(table.keys()):
-            self.redis.srem(self.SERVICES_SET_KEY, stale)
-        for name in table.keys():
-            self.redis.sadd(self.SERVICES_SET_KEY, name)
+            existing = redis_client.smembers(self.SERVICES_SET_KEY)
+            for stale in existing - set(table.keys()):
+                redis_client.srem(self.SERVICES_SET_KEY, stale)
+            for name in table.keys():
+                redis_client.sadd(self.SERVICES_SET_KEY, name)
 
-        logger.info("Routing table written: %s", table)
+        logger.info("Routing table written to %d Redis instance(s): %s",
+                     len(targets), table)
         self._on_routing_table_updated(table)
 
     def _write_resource_specs(self):
