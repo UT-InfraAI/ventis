@@ -273,6 +273,14 @@ class GlobalController(object):
     #  Startup health check                                               #
     # ------------------------------------------------------------------ #
 
+    def _get_node_redis_for(self, host):
+        """Get the Redis client for a given host, falling back to self.redis."""
+        return self.node_redis.get(host, self.redis)
+
+    def _agent_host_key(self, host):
+        """Return the host string as seen by Docker containers (for status key matching)."""
+        return "host.docker.internal" if host in ("localhost", "127.0.0.1") else host
+
     def _wait_for_healthy(self, timeout=30, interval=2):
         """
         Block until all controllers report healthy in Redis, or until timeout.
@@ -293,7 +301,9 @@ class GlobalController(object):
         while pending and time.time() < deadline:
             still_pending = []
             for name, host, port in pending:
-                status = self.redis.get(f"controller:{host}:{port}:status")
+                node_redis = self._get_node_redis_for(host)
+                agent_host = self._agent_host_key(host)
+                status = node_redis.get(f"controller:{agent_host}:{port}:status")
                 if status == "healthy":
                     logger.info("Controller %s (%s:%s) is ready.", name, host, port)
                     self._last_status[(host, port)] = "healthy"
@@ -328,14 +338,16 @@ class GlobalController(object):
             self.stop()
 
     def _poll_controllers(self):
-        """Check the health of each registered controller via Redis."""
+        """Check the health of each registered controller via its node's Redis."""
         for ctrl in self.controllers:
             name = ctrl["name"]
             host = ctrl.get("host", "localhost")
             port = ctrl.get("port", 50051)
-            status_key = f"controller:{host}:{port}:status"
+            node_redis = self._get_node_redis_for(host)
+            agent_host = self._agent_host_key(host)
+            status_key = f"controller:{agent_host}:{port}:status"
 
-            status = self.redis.get(status_key) or "unknown"
+            status = node_redis.get(status_key) or "unknown"
             prev = self._last_status.get((host, port))
 
             if status != prev:
