@@ -47,16 +47,22 @@ class LocalControllerServicer(local_controler_pb2_grpc.LocalControllerServicer):
         return local_controler_pb2.JsonResponse(resonse="Request queued successfully")
 
     def WriteResult(self, request, context):
-        """Accept a result from a remote controller and write it to local Redis."""
+        """Accept a result or error from a remote controller and write it to local Redis."""
         try:
             data = json.loads(request.resonse)
             future_id = data.get("future_id")
             result = data.get("result")
-            if future_id and result is not None:
-                self.redis.hset(f"future:{future_id}", "result", result)
-                logger.info("WriteResult: wrote result for future %s", future_id)
+            error = data.get("error")
+
+            if future_id:
+                if error is not None:
+                    self.redis.hset(f"future:{future_id}", "error", error)
+                    logger.info("WriteResult: wrote error for future %s", future_id)
+                if result is not None:
+                    self.redis.hset(f"future:{future_id}", "result", result)
+                    logger.info("WriteResult: wrote result for future %s", future_id)
             else:
-                logger.error("WriteResult: missing future_id or result in %s", data)
+                logger.error("WriteResult: missing future_id in %s", data)
         except Exception as e:
             logger.error("WriteResult failed: %s", e)
         return local_controler_pb2.JsonResponse(resonse="Result written")

@@ -113,10 +113,17 @@ class Future(object):
         return f"future:{self.id}:consumers"
 
     def _poll_redis(self):
-        """Check Redis for a computed result and cache it locally."""
-        result = self.redis.hget(self._key(), "result")
+        """Check Redis for a computed result or error, and cache it locally."""
+        hash_data = self.redis.hget_multiple(self._key(), ["result", "error"])
+        
+        error = hash_data.get("error")
+        if error and error != "":
+            raise PermissionError(error)
+
+        result = hash_data.get("result")
         if result is not None and result != "":
             self.result = result
+            
         return self.result
 
     def value(self, timeout=None):
