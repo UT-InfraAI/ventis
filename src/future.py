@@ -118,7 +118,8 @@ class Future(object):
         
         error = hash_data.get("error")
         if error and error != "":
-            raise PermissionError(error)
+            self.result = error
+            return self.result
 
         result = hash_data.get("result")
         if result is not None and result != "":

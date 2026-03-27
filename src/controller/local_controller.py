@@ -240,7 +240,9 @@ class LocalController(object):
                     hash_data = self.redis.hget_multiple(future_key, ["result", "error"])
                     error = hash_data.get("error")
                     if error and error != "":
-                        raise PermissionError(error)
+                        logger.info("Future %s resolved with error for arg '%s'", value, key)
+                        resolved[key] = error
+                        break
 
                     result = hash_data.get("result")
                     if result is not None and result != "":
