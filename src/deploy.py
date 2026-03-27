@@ -16,6 +16,7 @@ Usage:
     ventis.deploy(my_workflow, port=8080)
 """
 
+import ventis_context
 import json
 import logging
 import os
@@ -57,15 +58,23 @@ def deploy(workflow_fn, port=8080, host="0.0.0.0", redis_host=None, redis_port=N
     fn_name = workflow_fn.__name__
     app = Flask(f"ventis-{fn_name}")
 
-    def _execute_workflow(request_id, kwargs):
+    def _execute_workflow(request_id, kwargs, context=None):
         """Run the workflow in a background thread and store results in Redis."""
         status_key = f"request:{request_id}:status"
         result_key = f"request:{request_id}:result"
         error_key = f"request:{request_id}:error"
+        context_key = f"request:{request_id}:context"
 
         try:
             redis_client.set(status_key, "running")
             logger.info("Executing workflow '%s' for request %s", fn_name, request_id)
+
+            # Store context in Redis so Local Controllers can look it up
+            if context:
+                redis_client.set(context_key, json.dumps(context))
+
+            # Set thread-local request ID so Futures spawned here carry it
+            ventis_context.set_request_id(request_id)
 
             result = workflow_fn(**kwargs)
 
@@ -91,6 +100,9 @@ def deploy(workflow_fn, port=8080, host="0.0.0.0", redis_host=None, redis_port=N
         # Parse request body as JSON args for the workflow function
         kwargs = request.get_json(force=True, silent=True) or {}
 
+        # Extract policy context (if provided) before passing to workflow
+        context = kwargs.pop("_context", {})
+
         request_id = uuid.uuid4().hex
         status_key = f"request:{request_id}:status"
         redis_client.set(status_key, "pending")
@@ -98,7 +110,7 @@ def deploy(workflow_fn, port=8080, host="0.0.0.0", redis_host=None, redis_port=N
         # Dispatch the workflow in a background thread
         thread = threading.Thread(
             target=_execute_workflow,
-            args=(request_id, kwargs),
+            args=(request_id, kwargs, context),
             daemon=True,
         )
         thread.start()

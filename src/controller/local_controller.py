@@ -24,6 +24,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 ROUTING_TABLE_KEY = "routing_table"
+POLICY_RULES_KEY = "policy:rules"
 
 
 class LocalController(object):
@@ -55,6 +56,9 @@ class LocalController(object):
         # Cache for gRPC stubs to remote controllers
         self._remote_channels = {}  # endpoint -> grpc.Channel
         self._remote_stubs = {}     # endpoint -> LocalControllerStub
+
+        # Policy rules cache (loaded lazily from Redis)
+        self._policy_rules = None
 
         logger.info("Local controller initialized at %s, reported healthy to Redis.", self._my_endpoint)
         
@@ -96,6 +100,48 @@ class LocalController(object):
             return None
 
     # ------------------------------------------------------------------ #
+    #  Policy evaluation                                                   #
+    # ------------------------------------------------------------------ #
+
+    def _load_policy_rules(self):
+        """Load policy rules from Redis (cached after first load)."""
+        if self._policy_rules is not None:
+            return self._policy_rules
+
+        rules_json = self.redis.get(POLICY_RULES_KEY)
+        if rules_json:
+            self._policy_rules = json.loads(rules_json)
+        else:
+            self._policy_rules = []
+        return self._policy_rules
+
+    def _check_policy(self, service, context):
+        """
+        Check if the given service is accessible for the given request context.
+
+        Iterates through rules (sorted most-specific first) and returns True
+        if a matching rule grants access to the service.
+        """
+        rules = self._load_policy_rules()
+        if not rules:
+            # No policy rules -> allow everything
+            return True
+
+        for rule in rules:
+            match = rule.get("match", {})
+            access = rule.get("access", [])
+
+            # Check if all match keys are satisfied by the request context
+            if all(context.get(k) == v for k, v in match.items()):
+                if access == "all":
+                    return True
+                return service in access
+
+        # No rule matched at all
+        logger.warning("No policy rule matched for context=%s, denying access to %s", context, service)
+        return False
+
+    # ------------------------------------------------------------------ #
     #  Request processing                                                  #
     # ------------------------------------------------------------------ #
 
@@ -130,9 +176,21 @@ class LocalController(object):
         args = data.get("args", {})
         future_id = data.get("future_id")
         origin = data.get("origin")  # endpoint of the LC that originated this request
+        request_id = data.get("request_id")  # tracing ID from deploy module
+
+        context = {}
+        if request_id:
+            context_json = self.redis.get(f"request:{request_id}:context")
+            if context_json:
+                context = json.loads(context_json)
 
         if not service or not function or not future_id:
             logger.error("Malformed request, missing required fields: %s", data)
+            return
+
+        # Check policy before routing
+        if not self._check_policy(service, context):
+            logger.error("Policy denied: service=%s, context=%s", service, context)
             return
 
         # Look up the routing table

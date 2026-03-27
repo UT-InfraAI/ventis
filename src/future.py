@@ -6,6 +6,7 @@ import os
 import logging
 
 import grpc
+import ventis_context
 
 # Add utils directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "utils"))
@@ -51,6 +52,10 @@ class Future(object):
         
         # initial value of future object 
         self.id = uuid.uuid4().hex
+        
+        # Grab the request_id from the thread-local context (set by deploy)
+        self.request_id = ventis_context.get_request_id()
+
         # this provides the funtionality we need to execute
         self.funtionality = None
         self.executor = None
@@ -65,6 +70,7 @@ class Future(object):
         # Store scalar fields in a Redis Hash: future:<id>
         self.redis.hset_multiple(self._key(), {
             "id": self.id,
+            "request_id": self.request_id or "",
             "result": "",
             "parent": self.parent,
             "service": self.service,
@@ -84,6 +90,7 @@ class Future(object):
             "function": self.method,
             "args": self.args,
             "future_id": self.id,
+            "request_id": self.request_id,
         })
         request = local_controler_pb2.JsonResponse(resonse=request_payload)
         try:

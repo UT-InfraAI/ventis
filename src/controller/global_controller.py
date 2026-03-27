@@ -35,6 +35,7 @@ class GlobalController(object):
 
     ROUTING_TABLE_KEY = "routing_table"
     SERVICES_SET_KEY = "routing_table:services"
+    POLICY_RULES_KEY = "policy:rules"
 
     def __init__(self, config_path):
         self.config_path = config_path
@@ -59,10 +60,11 @@ class GlobalController(object):
         # Clean up any stale containers from previous runs
         self._cleanup_stale_containers()
 
-        # Launch Redis on each unique node, then write routing table
+        # Launch Redis on each unique node, then write routing table and policies
         self._launch_redis_containers()
         self._build_routing_table()
         self._write_resource_specs()
+        self._load_and_write_policies()
         logger.info("Global controller initialized with %d controller(s).", len(self.controllers))
 
     # ------------------------------------------------------------------ #
@@ -170,6 +172,34 @@ class GlobalController(object):
                 "memory": str(resources.get("memory", 512)),
                 "replicas": str(replicas),
             })
+
+    def _load_and_write_policies(self):
+        """Load policy rules from config/policy.yaml and write to all Redis instances."""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.join(script_dir, "..", "..")
+        policy_path = os.path.join(project_root, "config", "policy.yaml")
+
+        if not os.path.isfile(policy_path):
+            logger.info("No policy file found at %s, skipping policy setup.", policy_path)
+            return
+
+        with open(policy_path, "r") as f:
+            policy_config = yaml.safe_load(f)
+
+        rules = policy_config.get("rules", [])
+
+        # Sort rules by specificity: most match keys first
+        # This way the local controller can iterate and use the first matching rule.
+        rules.sort(key=lambda r: len(r.get("match", {})), reverse=True)
+
+        rules_json = json.dumps(rules)
+
+        # Write to every node's Redis
+        targets = list(self.node_redis.values()) if self.node_redis else [self.redis]
+        for redis_client in targets:
+            redis_client.set(self.POLICY_RULES_KEY, rules_json)
+
+        logger.info("Policy rules written to %d Redis instance(s): %d rule(s)", len(targets), len(rules))
 
     def get_routing_table(self):
         """Read the current routing table from Redis."""
