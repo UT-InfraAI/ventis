@@ -1,0 +1,31 @@
+# Global Controller Configuration
+# Lists all agents and workflows that Ventis manages.
+
+agents:
+  - name: ExampleAgent
+    host: localhost
+    port: 8051
+    redis_port: 6379
+    replicas: 1
+    resources:
+      cpu: 1
+      memory: 512
+    entrypoint: agents/example_agent.py
+
+  - name: Workflow
+    host: localhost
+    port: 8050
+    type: workflow
+    api_port: 8080
+    redis_port: 6379
+    replicas: 1
+    workflow_file: workflows/example_workflow.py
+
+# Polling interval in seconds
+poll_interval: 5
+
+# Redis connection
+redis:
+  host: localhost
+  port: 6379
+  db: 0

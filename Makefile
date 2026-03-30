@@ -1,21 +1,21 @@
 stubs:
 	mkdir -p stubs
-	python src/stub_generator.py ./examples/finance_agent.yaml -o ./stubs/finance_agent_stub.py
-	python src/stub_generator.py ./examples/market_agent.yaml -o ./stubs/market_agent_stub.py
+	python ventis/stub_generator.py ./examples/finance_agent.yaml -o ./stubs/finance_agent_stub.py
+	python ventis/stub_generator.py ./examples/market_agent.yaml -o ./stubs/market_agent_stub.py
 
 grpc:
 	mkdir -p grpc_stubs
-	python -m grpc_tools.protoc -I./src/controller/proto --python_out=./grpc_stubs --grpc_python_out=./grpc_stubs ./src/controller/proto/global_controller.proto
-	python -m grpc_tools.protoc -I./src/controller/proto --python_out=./grpc_stubs --grpc_python_out=./grpc_stubs ./src/controller/proto/local_controler.proto
+	python -m grpc_tools.protoc -I./ventis/controller/proto --python_out=./grpc_stubs --grpc_python_out=./grpc_stubs ./ventis/controller/proto/global_controller.proto
+	python -m grpc_tools.protoc -I./ventis/controller/proto --python_out=./grpc_stubs --grpc_python_out=./grpc_stubs ./ventis/controller/proto/local_controler.proto
 
 docker:
-	python src/stub_generator.py ./examples/finance_agent.yaml --agent-file ./examples/finance_agent.py --docker -o ./stubs/finance_agent_stub.py
-	python src/stub_generator.py ./examples/market_agent.yaml --agent-file ./examples/market_agent.py --docker -o ./stubs/market_agent_stub.py
+	python ventis/stub_generator.py ./examples/finance_agent.yaml --agent-file ./examples/finance_agent.py --docker -o ./stubs/finance_agent_stub.py
+	python ventis/stub_generator.py ./examples/market_agent.yaml --agent-file ./examples/market_agent.py --docker -o ./stubs/market_agent_stub.py
 	docker build -t ventis-financeagent docker_container/FinanceAgent/
 	docker build -t ventis-marketresearchagent docker_container/MarketResearchAgent/
 
 workflow-docker:
-	python src/stub_generator.py --workflow --workflow-file ./examples/workflow.py --stub-files ./stubs/finance_agent_stub.py ./stubs/market_agent_stub.py
+	python ventis/stub_generator.py --workflow --workflow-file ./examples/workflow.py --stub-files ./stubs/finance_agent_stub.py ./stubs/market_agent_stub.py
 	docker build -t ventis-workflow docker_container/Workflow/
 
 all: stubs grpc docker workflow-docker

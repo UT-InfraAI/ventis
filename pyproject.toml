@@ -1,0 +1,28 @@
+[project]
+name = "ventis"
+version = "0.1.0"
+description = "Distributed agent orchestration framework"
+requires-python = ">=3.10"
+dependencies = [
+    "grpcio",
+    "grpcio-tools",
+    "redis",
+    "pyyaml",
+    "flask",
+]
+
+[project.scripts]
+ventis = "ventis.cli:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.setuptools.packages.find]
+include = ["ventis*"]
+
+[tool.setuptools.package-data]
+ventis = [
+    "templates/**/*",
+    "controller/proto/*.proto",
+]
