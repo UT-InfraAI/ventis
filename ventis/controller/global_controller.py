@@ -175,9 +175,8 @@ class GlobalController(object):
 
     def _load_and_write_policies(self):
         """Load policy rules from config/policy.yaml and write to all Redis instances."""
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.join(script_dir, "..", "..")
-        policy_path = os.path.join(project_root, "config", "policy.yaml")
+        config_dir = os.path.dirname(os.path.abspath(self.config_path))
+        policy_path = os.path.join(config_dir, "policy.yaml")
 
         if not os.path.isfile(policy_path):
             logger.info("No policy file found at %s, skipping policy setup.", policy_path)
