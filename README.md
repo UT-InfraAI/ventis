@@ -152,3 +152,9 @@ Ventis uses Python's thread-local storage (`threading.local`) to transparently p
 > ```
 > 
 > **`asyncio` Incompatibility:** Because Ventis tracks requests via `threading.local()`, it is **not compatible** with Python's `asyncio` framework. Concurrent coroutines running on the same thread will blindly overwrite and leak each other's request IDs. Workflows must be written using standard synchronous Python or traditional threading.
+
+## Future Work
+
+- **Agent Thread Safety**: The Local Controller now executes agent methods in a `ThreadPoolExecutor` (controlled by `VENTIS_MAX_AGENT_INSTANCES`, default 8). This means multiple requests can run concurrently on the same agent instance. Currently, agents are assumed to be stateless or thread-safe. If an agent has mutable shared state, concurrent calls could cause data corruption. Future improvements could include per-thread agent instances, a locking mechanism, or a configurable concurrency mode (e.g., serial vs. parallel execution per agent).
+- **Stale Future Detection**: If an agent process crashes mid-execution, a Future's result may never be written to Redis, causing consumers to poll indefinitely. A TTL-based expiration or heartbeat mechanism could detect and clean up stale futures.
+- **`asyncio` Support**: Ventis currently relies on `threading.local()` for request context propagation, which is incompatible with `asyncio`. Supporting `contextvars` would enable async workflow functions.

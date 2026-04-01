@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
 
 import grpc
 
@@ -60,7 +61,13 @@ class LocalController(object):
         # Policy rules cache (loaded lazily from Redis)
         self._policy_rules = None
 
-        logger.info("Local controller initialized at %s, reported healthy to Redis.", self._my_endpoint)
+        # Thread pool for executing agent methods concurrently.
+        # This prevents deadlocks when an agent method creates nested Futures
+        # that need to be routed through the same controller's request queue.
+        max_instances = int(os.environ.get("VENTIS_MAX_AGENT_INSTANCES", 8))
+        self._executor = ThreadPoolExecutor(max_workers=max_instances)
+
+        logger.info("Local controller initialized at %s (max_agent_instances=%d), reported healthy to Redis.", self._my_endpoint, max_instances)
         
         # Load the agent class dynamically
         self.agent = self._load_agent()
@@ -204,7 +211,7 @@ class LocalController(object):
             return
 
         if endpoint == self._my_endpoint:
-            self._execute_locally(service, function, args, future_id, origin)
+            self._executor.submit(self._execute_locally, service, function, args, future_id, origin)
         else:
             # Register the target as a consumer for any Future args
             # so results get pushed to its Redis via WriteResult.
@@ -342,6 +349,7 @@ class LocalController(object):
     def stop(self):
         """Gracefully shut down the server."""
         logger.info("Shutting down local controller...")
+        self._executor.shutdown(wait=True)
         self.redis.set(self._status_key, "stopped")
         self.server.stop(0)
 
