@@ -11,7 +11,9 @@ class FinanceAgent(object):
 
     def get_company_name(self, ticker: str) -> str:
         """Get the company name for a given ticker."""
+        print("get_company_name")
         val = self.run(ticker)
+        print(val)
         return val
 
     def run(self, query: str) -> str:
@@ -22,8 +24,9 @@ class FinanceAgent(object):
         
         # Call the VLLM agent remotely and wait for the result
         # .value() blocks until the future completes via Redis
-        response = self.vllm.generate(prompt).value()
-        return response
+        response = self.vllm.generate(prompt)
+        # print(response.value())
+        return response.value()
 
 if __name__ == "__main__":
     agent = FinanceAgent()
