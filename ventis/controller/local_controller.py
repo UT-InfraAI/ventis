@@ -17,7 +17,10 @@ from redis_client import RedisClient
 
 # Add grpc_stubs directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "grpc_stubs"))
+# Add ventis main directory to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import ventis_context
 import local_controler_pb2
 import local_controler_pb2_grpc
 
@@ -211,7 +214,7 @@ class LocalController(object):
             return
 
         if endpoint == self._my_endpoint:
-            self._executor.submit(self._execute_locally, service, function, args, future_id, origin)
+            self._executor.submit(self._execute_locally, service, function, args, future_id, origin, request_id)
         else:
             # Register the target as a consumer for any Future args
             # so results get pushed to its Redis via WriteResult.
@@ -263,8 +266,12 @@ class LocalController(object):
                 resolved[key] = value
         return resolved
 
-    def _execute_locally(self, service, function, args, future_id, origin=None):
+    def _execute_locally(self, service, function, args, future_id, origin=None, request_id=None):
         """Execute a request on the local agent and write the result to Redis."""
+        # Propagate the request_id context into this worker thread
+        if request_id:
+            ventis_context.set_request_id(request_id)
+
         if self.agent is None:
             logger.error("No agent loaded, cannot execute %s.%s", service, function)
             return
