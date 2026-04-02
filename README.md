@@ -3,9 +3,8 @@
 Ventis is a lightweight agent orchestration framework designed for distributed workflows using gRPC and Redis.
 
 ## Core Features
-
-- **CLI-First Workflow**: Scaffolding, building, and deploying via the `ventis` command.
-- **Distributed Futures**: Asynchronous execution with results automatically persisted to Redis.
+- **Easy development and deployment**: Developers write agents in python as if writing single node local code. Ventis takes care of deployment and management of agents and workflows. Deployment engineers running this workflow can specify orchestration, authorization and other serving policies, Ventis will enforce them.     
+- **Distributed Futures**: Asynchronous execution without any user workflow modification.
 - **Docker-Managed Infrastructure**: Automatic launching of agent and Redis containers locally or via SSH.
 
 ---
@@ -85,13 +84,6 @@ Remove all generated stub and gRPC files:
 ```bash
 make clean
 ```
-### Salient Features of Ventis
-* **Easy Programming Model**: Ventis provides an easy programming model for developers to define their agents and workflows.
-
-* **End-to-End Deployment**: Ventis provides an end-to-end deployment solution for their agents and workflows. Where without worrying about the underlying infrastructure, developers can deploy their agents and workflows in a distributed manner. 
-
-* **Custom Policies**: Ventis provides an easy way to define custom policies to perform fine-grained control over their agents, workflows. 
-
 
 ### Harnessing the power of Ventis
 * Beyond an easy programming model and end-to-end deployment. Ventis, enables developers to write custom policies to perform fine-grained control over their agents, workflows. 
@@ -132,4 +124,3 @@ If you find Ventis (Nalar) useful for your research, please cite our paper:
       url={https://arxiv.org/abs/2601.05109}, 
 }
 ```
-
