@@ -20,6 +20,14 @@ class RedisClient(object):
             return value.decode("utf-8")
         return None
 
+    def delete(self, *keys):
+        """Delete one or more keys from Redis."""
+        self.client.delete(*keys)
+
+    def setnx(self, key, value):
+        """Set key to value only if it does not already exist. Returns True if set, False otherwise."""
+        return self.client.setnx(key, value)
+
     # --- Hash operations ---
 
     def hset(self, name, field, value):

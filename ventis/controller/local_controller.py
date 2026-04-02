@@ -44,7 +44,9 @@ class LocalController(object):
         # internally the gRPC server binds to `port` (50051 inside Docker).
         self.public_port = os.environ.get("VENTIS_AGENT_PORT", str(port))
         
-        self.server, self.servicer = start_server(port)
+        self._my_endpoint = f"{self.agent_host}:{self.public_port}"
+
+        self.server, self.servicer = start_server(port, my_endpoint=self._my_endpoint)
         self.request_queue = self.servicer.request_queue
 
         # Connect to Redis and report healthy status
@@ -53,9 +55,6 @@ class LocalController(object):
         self.redis = RedisClient(host=redis_host, port=redis_port)
         self._status_key = f"controller:{self.agent_host}:{self.public_port}:status"
         self.redis.set(self._status_key, "healthy")
-
-        # My own endpoint for comparison with routing table
-        self._my_endpoint = f"{self.agent_host}:{self.public_port}"
 
         # Cache for gRPC stubs to remote controllers
         self._remote_channels = {}  # endpoint -> grpc.Channel

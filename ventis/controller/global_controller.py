@@ -6,6 +6,7 @@ import atexit
 import logging
 import signal
 import subprocess
+import threading
 import time
 import json
 import sys
@@ -17,6 +18,12 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "utils"))
 
 from redis_client import RedisClient
+
+# Add grpc_stubs to the path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "grpc_stubs"))
+import local_controler_pb2
+import local_controler_pb2_grpc
+import grpc
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -49,6 +56,7 @@ class GlobalController(object):
         )
 
         self.poll_interval = self.config.get("poll_interval", 5)
+        self.cleanup_interval = self.config.get("cleanup_interval", 60)
         self.controllers = self.config.get("agents", [])
         self.running = False
         self.processes = {}  # name -> [Popen, ...]
@@ -56,6 +64,7 @@ class GlobalController(object):
         self.redis_containers = {}  # host -> container_name
         self.node_redis = {}  # host -> RedisClient
         self._last_status = {}  # (host, port) -> last known status
+        self._lc_stubs = {}    # endpoint -> gRPC stub
 
         # Clean up any stale containers from previous runs
         self._cleanup_stale_containers()
@@ -66,6 +75,10 @@ class GlobalController(object):
         self._write_resource_specs()
         self._load_and_write_policies()
         logger.info("Global controller initialized with %d controller(s).", len(self.controllers))
+
+        # Start background cleanup thread
+        self._cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
+        self._cleanup_thread.start()
 
     # ------------------------------------------------------------------ #
     #  Stale container cleanup                                             #
@@ -412,6 +425,51 @@ class GlobalController(object):
     def _on_routing_table_updated(self, table):
         """Called after the routing table has been written to Redis."""
         pass
+
+    # ------------------------------------------------------------------ #
+    #  Cleanup trigger                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _get_lc_stub(self, endpoint):
+        """Get or create a cached gRPC stub for a local controller endpoint."""
+        if endpoint not in self._lc_stubs:
+            channel = grpc.insecure_channel(endpoint)
+            self._lc_stubs[endpoint] = local_controler_pb2_grpc.LocalControllerStub(channel)
+        return self._lc_stubs[endpoint]
+
+    def _cleanup_loop(self):
+        """Background thread: periodically trigger cleanup of completed requests."""
+        while True:
+            time.sleep(self.cleanup_interval)
+            try:
+                self._trigger_cleanup()
+            except Exception as e:
+                logger.warning("Cleanup loop encountered an error: %s", e)
+
+    def _trigger_cleanup(self):
+        """Broadcast Cleanup gRPC to all local controllers for each completed request."""
+        completed = self.redis.smembers("request:completed")
+        if not completed:
+            return
+
+        for request_id in completed:
+            logger.info("Triggering cleanup for completed request %s", request_id)
+            for ctrl in self.controllers:
+                host = ctrl.get("host", "localhost")
+                port = ctrl.get("port", 50051)
+                # Use host.docker.internal so the GC (running on host) can reach containers
+                lc_host = "host.docker.internal" if host in ("localhost", "127.0.0.1") else host
+                endpoint = f"{lc_host}:{port}"
+                try:
+                    stub = self._get_lc_stub(endpoint)
+                    payload = json.dumps({"request_id": request_id})
+                    stub.Cleanup(local_controler_pb2.JsonResponse(resonse=payload))
+                    logger.debug("Sent Cleanup for request %s to %s", request_id, endpoint)
+                except Exception as e:
+                    logger.warning("Failed to trigger cleanup on %s: %s", endpoint, e)
+
+            # Remove from completed set after broadcast
+            self.redis.srem("request:completed", request_id)
 
     # ------------------------------------------------------------------ #
     #  Agent launching                                                    #

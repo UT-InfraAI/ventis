@@ -77,6 +77,9 @@ class Future(object):
             "method": self.method,
             "args": json.dumps(self.args),
         })
+        # Register this future under its request so local controllers can clean it up
+        if self.request_id:
+            self.redis.sadd(f"request:{self.request_id}:futures", self.id)
         # If a future is calculated, this flag will be true
         self.calculated = False
         # Submit the request to the local controller

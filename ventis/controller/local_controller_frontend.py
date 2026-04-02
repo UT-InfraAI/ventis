@@ -30,8 +30,9 @@ logger = logging.getLogger(__name__)
 class LocalControllerServicer(local_controler_pb2_grpc.LocalControllerServicer):
     """gRPC servicer that accepts requests and pushes them into a queue."""
 
-    def __init__(self):
+    def __init__(self, my_endpoint="unknown"):
         self.request_queue = queue.Queue()
+        self.my_endpoint = my_endpoint
         # Redis client for writing results back to local Redis
         redis_host = os.environ.get("VENTIS_REDIS_HOST", "localhost")
         redis_port = int(os.environ.get("VENTIS_REDIS_PORT", 6379))
@@ -71,10 +72,51 @@ class LocalControllerServicer(local_controler_pb2_grpc.LocalControllerServicer):
             logger.error("WriteResult failed: %s", e)
         return local_controler_pb2.JsonResponse(resonse="Result written")
 
+    def Cleanup(self, request, context):
+        """Trigger async cleanup of all futures associated with a completed request."""
+        try:
+            data = json.loads(request.resonse)
+            request_id = data.get("request_id")
+            if request_id:
+                Thread(target=self._cleanup_request, args=(request_id,), daemon=True).start()
+            else:
+                logger.warning("Cleanup: missing request_id in payload")
+        except Exception as e:
+            logger.error("Cleanup: failed to parse payload: %s", e)
+        return local_controler_pb2.JsonResponse(resonse="Cleanup triggered")
 
-def start_server(port=50051):
+    def _cleanup_request(self, request_id):
+        """Delete all futures associated with a request from this node's Redis."""
+        # Atomically claim cleanup — prevents duplicate work when multiple LCs share a Redis
+        lock_key = f"request:{request_id}:cleanup_lock"
+        if not self.redis.setnx(lock_key, self.my_endpoint):
+            logger.info("Cleanup for request %s already claimed by another LC, skipping.", request_id)
+            return
+
+        try:
+            futures_key = f"request:{request_id}:futures"
+            future_ids = self.redis.smembers(futures_key)
+            if not future_ids:
+                logger.info("No futures found for request %s on this node.", request_id)
+                return
+
+            keys_to_delete = [futures_key]
+            for fid in future_ids:
+                keys_to_delete.extend([
+                    f"future:{fid}",
+                    f"future:{fid}:children",
+                    f"future:{fid}:consumers",
+                ])
+            self.redis.delete(*keys_to_delete)
+            logger.info("Cleaned up %d future(s) for request %s", len(future_ids), request_id)
+        finally:
+            # Always release the lock, even if cleanup partially failed
+            self.redis.delete(lock_key)
+
+
+def start_server(port=50051, my_endpoint="unknown"):
     """Start the gRPC server."""
-    servicer = LocalControllerServicer()
+    servicer = LocalControllerServicer(my_endpoint=my_endpoint)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
     local_controler_pb2_grpc.add_LocalControllerServicer_to_server(

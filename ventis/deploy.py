@@ -86,6 +86,7 @@ def deploy(workflow_fn, port=8080, host="0.0.0.0", redis_host=None, redis_port=N
 
             redis_client.set(result_key, serialized)
             redis_client.set(status_key, "done")
+            redis_client.sadd("request:completed", request_id)
             logger.info("Request %s completed successfully.", request_id)
 
         except Exception as e:
@@ -93,6 +94,7 @@ def deploy(workflow_fn, port=8080, host="0.0.0.0", redis_host=None, redis_port=N
             logger.error(traceback.format_exc())
             redis_client.set(error_key, str(e))
             redis_client.set(status_key, "error")
+            redis_client.sadd("request:completed", request_id)
 
     @app.route(f"/{fn_name}", methods=["POST"])
     def handle_workflow():
