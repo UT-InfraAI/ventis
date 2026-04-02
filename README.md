@@ -96,7 +96,7 @@ Currently, we support two types of policies, with plans to add more in the futur
 
 * Ventis has built-in policies to perform load-balancing across multiple instances of the same agent. Request migrations ease head-of-line blocking, and our experiments show that Ventis's performance control can reduce tail latencies and enable efficient GPU utilization. Here is an example of the results:
 
-![Financial Analyst Results](images/financial_analyst_results.pdf)
+![Financial Analyst Results](images/financial_analyst_results_page.jpg)
 
 For more details, please refer to our paper - [Nalar: An agent serving framework](https://arxiv.org/abs/2601.05109)
 
