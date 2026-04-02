@@ -56,7 +56,7 @@ class GlobalController(object):
         )
 
         self.poll_interval = self.config.get("poll_interval", 5)
-        self.cleanup_interval = self.config.get("cleanup_interval", 60)
+        self.cleanup_interval = self.config.get("cleanup_interval", 10)
         self.controllers = self.config.get("agents", [])
         self.running = False
         self.processes = {}  # name -> [Popen, ...]
