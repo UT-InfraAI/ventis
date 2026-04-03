@@ -14,13 +14,10 @@ import os
 
 import yaml
 
-# Add utils directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "utils"))
+from ventis.utils.redis_client import RedisClient
 
-from redis_client import RedisClient
-
-# Add grpc_stubs to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "grpc_stubs"))
+# Add generated grpc_stubs from the local project to the path
+sys.path.insert(0, os.path.abspath("grpc_stubs"))
 import local_controler_pb2
 import local_controler_pb2_grpc
 import grpc

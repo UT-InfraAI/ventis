@@ -17,8 +17,10 @@ import logging
 import sys
 import os
 
-# Add grpc_stubs to the path so generated protobuf modules are importable
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "grpc_stubs"))
+# Add generated grpc_stubs to the path (Docker context copies them directly to /app)
+sys.path.insert(0, ".")
+sys.path.insert(0, "/app")
+sys.path.insert(0, os.path.abspath("grpc_stubs"))
 
 import local_controler_pb2
 import local_controler_pb2_grpc
@@ -36,9 +38,10 @@ class LocalControllerServicer(local_controler_pb2_grpc.LocalControllerServicer):
         # Redis client for writing results back to local Redis
         redis_host = os.environ.get("VENTIS_REDIS_HOST", "localhost")
         redis_port = int(os.environ.get("VENTIS_REDIS_PORT", 6379))
-        # Add utils to path for RedisClient
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "utils"))
-        from redis_client import RedisClient
+        try:
+            from ventis.utils.redis_client import RedisClient
+        except ImportError:
+            from redis_client import RedisClient
         self.redis = RedisClient(host=redis_host, port=redis_port)
 
     def Execute(self, request, context):

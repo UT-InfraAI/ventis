@@ -13,15 +13,19 @@ from concurrent.futures import ThreadPoolExecutor
 
 import grpc
 
-from local_controller_frontend import start_server
-from redis_client import RedisClient
+try:
+    from ventis.controller.local_controller_frontend import start_server
+    from ventis.utils.redis_client import RedisClient
+except ImportError:
+    from local_controller_frontend import start_server
+    from redis_client import RedisClient
 
-# Add grpc_stubs directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "grpc_stubs"))
-# Add ventis main directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+# Add local generated grpc_stubs to path (Docker context copies them directly to /app)
+sys.path.insert(0, ".")
+sys.path.insert(0, "/app")
+sys.path.insert(0, os.path.abspath("grpc_stubs"))
 
-import ventis_context
+import ventis.ventis_context as ventis_context
 import local_controler_pb2
 import local_controler_pb2_grpc
 

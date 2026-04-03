@@ -27,10 +27,11 @@ import uuid
 
 from flask import Flask, request, jsonify
 
-# Add utils directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "utils"))
-
-from redis_client import RedisClient
+# Try to import from absolute package (local install) or fallback to flat file (Docker container)
+try:
+    from ventis.utils.redis_client import RedisClient
+except ImportError:
+    from redis_client import RedisClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
