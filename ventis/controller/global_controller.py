@@ -103,8 +103,8 @@ class GlobalController(object):
         # Agent container names
         for ctrl in self.controllers:
             name = ctrl["name"]
-            replicas = ctrl.get("replicas", 1)
-            for i in range(replicas):
+            placements = self._get_replica_placements(ctrl)
+            for i in range(len(placements)):
                 stale_names.append(f"ventis-{name.lower()}-{i}")
 
         # Try to remove each one (docker rm -f ignores non-existent containers)
@@ -227,12 +227,12 @@ class GlobalController(object):
         for ctrl in self.controllers:
             name = ctrl["name"]
             resources = ctrl.get("resources", {})
-            replicas = ctrl.get("replicas", 1)
+            placements = self._get_replica_placements(ctrl)
 
             self.redis.hset_multiple(f"agent:{name}:resources", {
                 "cpu": str(resources.get("cpu", 1)),
                 "memory": str(resources.get("memory", 512)),
-                "replicas": str(replicas),
+                "replicas": str(len(placements)),
             })
 
     def _load_and_write_policies(self):
@@ -535,9 +535,8 @@ class GlobalController(object):
 
         for ctrl in self.controllers:
             name = ctrl["name"]
-            replicas = ctrl.get("replicas", 1)
+            placements = self._get_replica_placements(ctrl)
             entrypoint = ctrl.get("entrypoint")
-            base_port = ctrl.get("port", 50051)
 
             if not entrypoint:
                 logger.warning("No entrypoint for %s, skipping launch.", name)
@@ -549,9 +548,8 @@ class GlobalController(object):
                 continue
 
             self.processes[name] = []
-            for i in range(replicas):
-                port = base_port + i
-                proc = self._launch_single_agent(name, entrypoint_path, port, ctrl)
+            for host, port in placements:
+                proc = self._launch_single_agent(name, entrypoint_path, port, ctrl, host)
                 if proc:
                     self.processes[name].append(proc)
 
@@ -559,7 +557,7 @@ class GlobalController(object):
         logger.info("Launched %d agent process(es) across %d service(s).",
                     total, len(self.processes))
 
-    def _launch_single_agent(self, name, entrypoint_path, port, ctrl):
+    def _launch_single_agent(self, name, entrypoint_path, port, ctrl, host=None):
         """
         Launch a single agent subprocess.
 
@@ -589,7 +587,7 @@ class GlobalController(object):
             logger.info("Launched %s (pid=%d) on port %d", name, proc.pid, port)
 
             # Record status in Redis
-            host = ctrl.get("host", "localhost")
+            host = host or ctrl.get("host", "localhost")
             self.redis.set(f"controller:{host}:{port}:status", "healthy")
             self.redis.set(f"controller:{host}:{port}:pid", str(proc.pid))
 
