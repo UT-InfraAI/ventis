@@ -25,7 +25,10 @@ sys.path.insert(0, ".")
 sys.path.insert(0, "/app")
 sys.path.insert(0, os.path.abspath("grpc_stubs"))
 
-import ventis.ventis_context as ventis_context
+try:
+    import ventis.ventis_context as ventis_context
+except ImportError:
+    import ventis_context
 import local_controler_pb2
 import local_controler_pb2_grpc
 

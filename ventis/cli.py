@@ -100,11 +100,8 @@ def cmd_build(args):
     stubs_dir = os.path.join(project_dir, "stubs")
     os.makedirs(stubs_dir, exist_ok=True)
 
-    # Add the package dir to sys.path so stub_generator can be imported
-    sys.path.insert(0, package_dir)
-    # Also add utils for redis_client
-    repo_root = os.path.dirname(package_dir)
-    sys.path.insert(0, os.path.join(repo_root, "utils"))
+    # Add repo_root to sys.path so 'ventis.stub_generator' can be imported
+    sys.path.insert(0, repo_root)
 
     from ventis.stub_generator import generate_stub, generate_docker, generate_workflow_docker
 
@@ -234,8 +231,9 @@ def cmd_deploy(args):
     # Ensure imports resolve
     package_dir = _get_package_dir()
     repo_root = os.path.dirname(package_dir)
-    sys.path.insert(0, os.path.join(repo_root, "utils"))
-    sys.path.insert(0, os.path.join(repo_root, "grpc_stubs"))
+    sys.path.insert(0, repo_root)
+    # Add the project's grpc_stubs to path so global controller can find them
+    sys.path.insert(0, os.path.join(os.getcwd(), "grpc_stubs"))
 
     from ventis.controller.global_controller import GlobalController
 

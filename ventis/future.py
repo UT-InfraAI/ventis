@@ -6,7 +6,10 @@ import os
 import logging
 
 import grpc
-import ventis_context
+try:
+    import ventis.ventis_context as ventis_context
+except ImportError:
+    import ventis_context
 
 # Add generated grpc_stubs to path (Docker context copies them directly to /app, and local relies on project dir)
 sys.path.insert(0, ".")

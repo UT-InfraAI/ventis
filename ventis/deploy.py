@@ -16,7 +16,10 @@ Usage:
     ventis.deploy(my_workflow, port=8080)
 """
 
-import ventis_context
+try:
+    import ventis.ventis_context as ventis_context
+except ImportError:
+    import ventis_context
 import json
 import logging
 import os
