@@ -101,6 +101,7 @@ def cmd_build(args):
     os.makedirs(stubs_dir, exist_ok=True)
 
     # Add repo_root to sys.path so 'ventis.stub_generator' can be imported
+    repo_root = os.path.dirname(package_dir)
     sys.path.insert(0, repo_root)
 
     from ventis.stub_generator import generate_stub, generate_docker, generate_workflow_docker
