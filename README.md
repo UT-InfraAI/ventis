@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/ventis-logo.png" alt="Ventis Logo" width="400">
+</p>
+
 # Ventis
 
 Ventis is a lightweight end-to-end agent programming framework for building agentic workflows and controlling their execution. 
