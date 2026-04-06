@@ -2,12 +2,10 @@
   <img src="images/ventis-logo.png" alt="Ventis Logo" width="400">
 </p>
 
-# Ventis
-
-Ventis is a lightweight end-to-end agent programming framework for building agentic workflows and controlling their execution. 
+Ventis is a bottom-up control plane and agent serving framework that enables developers to build, deploy and control agentic workflow serving with ease. Ventis derives it's name from the latin word 'ventus' meaning wind. True to its name, Ventis is like the wind, invisible but always present. 
 
 ## Core Features
-- **Easy development and deployment**: Developers write agents in python as if writing single node local code. Ventis takes care of deployment and management of agents and workflows. Deployment engineers running this workflow can specify orchestration, authorization and other serving policies, Ventis will enforce them.     
+- **Easy development and deployment**: Developers write agents in python as if writing single node local code. Ventis takes care of deployment, management and orchestration of agents and workflows. Deployment engineers running this workflow can specify authorization and other serving policies, Ventis will enforce them.     
 - **Distributed Futures**: Asynchronous execution without any user workflow modification.
 - **Pluggable Policy Engine**: Supports multiple policies for orchestration, authorization and other serving policies.
 
