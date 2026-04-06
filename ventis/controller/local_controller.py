@@ -259,8 +259,13 @@ class LocalController(object):
                 self._send_result_callback(origin, future_id, err_msg)
             return
 
-        # Resolve which endpoint to route to
-        endpoint = self._resolve_endpoint(service, request_id)
+        # Check if the sender already resolved the target endpoint,
+        # otherwise resolve it locally (and attach it for the next hop).
+        endpoint = data.get("target_endpoint")
+        if not endpoint:
+            endpoint = self._resolve_endpoint(service, request_id)
+            data["target_endpoint"] = endpoint
+
         if not endpoint:
             logger.error("No endpoint found for service '%s' in routing table.", service)
             return
