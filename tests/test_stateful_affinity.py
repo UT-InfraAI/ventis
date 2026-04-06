@@ -136,12 +136,12 @@ class TestAffinityResolution:
         is_stateful = redis.hget(ROUTING_STATEFUL_KEY, service) == "true"
 
         if is_stateful and request_id:
-            affinity_key = f"affinity:{request_id}:{service}"
-            existing = redis.get(affinity_key)
+            affinity_key = f"affinity:{request_id}"
+            existing = redis.hget(affinity_key, service)
             if existing:
                 return existing
             chosen = _random.choice(endpoints)
-            redis.set(affinity_key, chosen)
+            redis.hset(affinity_key, service, chosen)
             return chosen
         else:
             return _random.choice(endpoints)
@@ -184,8 +184,8 @@ class TestAffinityResolution:
         rid = uuid.uuid4().hex
         chosen = self._resolve_endpoint(redis, "FA", rid)
 
-        affinity_key = f"affinity:{rid}:FA"
-        assert redis.get(affinity_key) == chosen
+        affinity_key = f"affinity:{rid}"
+        assert redis.hget(affinity_key, "FA") == chosen
 
     def test_stateless_no_affinity_key(self, redis):
         """Stateless agents should NOT create affinity keys in Redis."""
@@ -195,8 +195,8 @@ class TestAffinityResolution:
         rid = uuid.uuid4().hex
         self._resolve_endpoint(redis, "SL", rid)
 
-        affinity_key = f"affinity:{rid}:SL"
-        assert redis.get(affinity_key) is None
+        affinity_key = f"affinity:{rid}"
+        assert redis.hget(affinity_key, "SL") is None
 
     def test_stateless_returns_valid_endpoint(self, redis):
         """Stateless agents should always return one of the available endpoints."""
@@ -223,40 +223,37 @@ class TestAffinityCleanup:
     """Verify that affinity keys are cleaned up when a request completes."""
 
     def test_affinity_keys_cleaned_up(self, redis):
-        """After cleanup, affinity:<request_id>:* keys should be gone."""
+        """After cleanup, affinity:<request_id> keys should be gone."""
         rid = uuid.uuid4().hex
         # Simulate affinity bindings for a request
-        redis.set(f"affinity:{rid}:AgentA", "h:5001")
-        redis.set(f"affinity:{rid}:AgentB", "h:6001")
+        redis.hset(f"affinity:{rid}", "AgentA", "h:5001")
+        redis.hset(f"affinity:{rid}", "AgentB", "h:6001")
 
         # Verify they exist
-        assert redis.get(f"affinity:{rid}:AgentA") == "h:5001"
-        assert redis.get(f"affinity:{rid}:AgentB") == "h:6001"
+        assert redis.hget(f"affinity:{rid}", "AgentA") == "h:5001"
+        assert redis.hget(f"affinity:{rid}", "AgentB") == "h:6001"
 
         # Simulate cleanup (what _cleanup_request does)
-        affinity_keys = redis.scan_keys(f"affinity:{rid}:*")
-        assert len(affinity_keys) == 2
-        redis.delete(*affinity_keys)
+        redis.delete(f"affinity:{rid}")
 
         # Verify they're gone
-        assert redis.get(f"affinity:{rid}:AgentA") is None
-        assert redis.get(f"affinity:{rid}:AgentB") is None
+        assert redis.hget(f"affinity:{rid}", "AgentA") is None
+        assert redis.hget(f"affinity:{rid}", "AgentB") is None
 
     def test_cleanup_does_not_affect_other_requests(self, redis):
         """Cleaning up one request's affinity should not touch another's."""
         rid_a = uuid.uuid4().hex
         rid_b = uuid.uuid4().hex
 
-        redis.set(f"affinity:{rid_a}:Agent", "h:5001")
-        redis.set(f"affinity:{rid_b}:Agent", "h:5002")
+        redis.hset(f"affinity:{rid_a}", "Agent", "h:5001")
+        redis.hset(f"affinity:{rid_b}", "Agent", "h:5002")
 
         # Clean up only rid_a
-        keys_a = redis.scan_keys(f"affinity:{rid_a}:*")
-        redis.delete(*keys_a)
+        redis.delete(f"affinity:{rid_a}")
 
         # rid_a gone, rid_b untouched
-        assert redis.get(f"affinity:{rid_a}:Agent") is None
-        assert redis.get(f"affinity:{rid_b}:Agent") == "h:5002"
+        assert redis.hget(f"affinity:{rid_a}", "Agent") is None
+        assert redis.hget(f"affinity:{rid_b}", "Agent") == "h:5002"
 
 
 # ------------------------------------------------------------------ #

@@ -189,14 +189,14 @@ class LocalController(object):
         is_stateful = self.redis.hget(ROUTING_STATEFUL_KEY, service) == "true"
 
         if is_stateful and request_id:
-            affinity_key = f"affinity:{request_id}:{service}"
-            existing = self.redis.get(affinity_key)
+            affinity_key = f"affinity:{request_id}"
+            existing = self.redis.hget(affinity_key, service)
             if existing:
                 logger.debug("Affinity hit: %s -> %s (request %s)", service, existing, request_id)
                 return existing
-            # No existing binding — pick randomly and persist
+            # No existing binding — pick randomly and persist to Hash
             chosen = random.choice(endpoints)
-            self.redis.set(affinity_key, chosen)
+            self.redis.hset(affinity_key, service, chosen)
             logger.info("Affinity set: %s -> %s (request %s)", service, chosen, request_id)
             return chosen
         else:
@@ -239,12 +239,25 @@ class LocalController(object):
         future_id = data.get("future_id")
         origin = data.get("origin")  # endpoint of the LC that originated this request
         request_id = data.get("request_id")  # tracing ID from deploy module
+        baggage = data.get("baggage", {})
 
-        context = {}
-        if request_id:
-            context_json = self.redis.get(f"request:{request_id}:context")
-            if context_json:
-                context = json.loads(context_json)
+        # 1. Unpack context from baggage (or fall back to local Redis)
+        context = baggage.get("context")
+        if context is None:
+            context = {}
+            if request_id:
+                context_json = self.redis.get(f"request:{request_id}:context")
+                if context_json:
+                    context = json.loads(context_json)
+        else:
+            if request_id:
+                # Cache received context locally for downstream stubs
+                self.redis.set(f"request:{request_id}:context", json.dumps(context))
+
+        # 2. Unpack affinities from baggage into local Redis Hash
+        affinities = baggage.get("affinities", {})
+        if request_id and affinities:
+            self.redis.hset_multiple(f"affinity:{request_id}", affinities)
 
         if not service or not function or not future_id:
             logger.error("Malformed request, missing required fields: %s", data)
@@ -259,13 +272,8 @@ class LocalController(object):
                 self._send_result_callback(origin, future_id, err_msg)
             return
 
-        # Check if the sender already resolved the target endpoint,
-        # otherwise resolve it locally (and attach it for the next hop).
-        endpoint = data.get("target_endpoint")
-        if not endpoint:
-            endpoint = self._resolve_endpoint(service, request_id)
-            data["target_endpoint"] = endpoint
-
+        # Resolve which endpoint to route to
+        endpoint = self._resolve_endpoint(service, request_id)
         if not endpoint:
             logger.error("No endpoint found for service '%s' in routing table.", service)
             return
@@ -288,6 +296,23 @@ class LocalController(object):
                         if existing_result is not None and existing_result != "":
                             logger.info("Future %s already resolved, pushing value %s to %s", value, existing_result, endpoint)
                             self._send_result_callback(endpoint, value, existing_result)
+
+            # Build comprehensive outward baggage so the receiver gets all context and routing descisions
+            outbound_baggage = {"context": context} if context else {}
+            if request_id:
+                all_affs = self.redis.hgetall(f"affinity:{request_id}")
+                if all_affs:
+                    outbound_baggage["affinities"] = all_affs
+
+            if outbound_baggage:
+                data["baggage"] = outbound_baggage
+
+            # Note: We now rely on baggage["affinities"] heavily instead of `target_endpoint`.
+            # We explicitly place the destined endpoint into the affinities bag.
+            if request_id and "affinities" not in data.get("baggage", {}):
+                data.setdefault("baggage", {})["affinities"] = {service: endpoint}
+            elif request_id:
+                data["baggage"]["affinities"][service] = endpoint
 
             logger.info("Forwarding %s.%s (future=%s) to %s", service, function, future_id, endpoint)
             self._forward_request(endpoint, data)
