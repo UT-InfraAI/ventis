@@ -350,10 +350,14 @@ class GlobalController(object):
     def _stop_redis_containers(self):
         """Stop and remove all launched Redis containers."""
         for host, container_name in self.redis_containers.items():
+            # Find the SSH user for this host by checking all replica placements
             user = None
             for ctrl in self.controllers:
-                if ctrl.get("host", "localhost") == host:
-                    user = ctrl.get("user")
+                for rhost, _rport in self._get_replica_placements(ctrl):
+                    if rhost == host:
+                        user = ctrl.get("user")
+                        break
+                if user is not None:
                     break
             try:
                 self._run_cmd(["docker", "stop", container_name], host, user)
@@ -832,16 +836,23 @@ class GlobalController(object):
         """Stop and remove all launched Docker containers."""
         for ctrl in self.controllers:
             name = ctrl["name"]
-            host = ctrl.get("host", "localhost")
             user = ctrl.get("user")
+            placements = self._get_replica_placements(ctrl)
 
-            for container_name in self.containers.get(name, []):
+            containers_for_agent = self.containers.get(name, [])
+            for i, container_name in enumerate(containers_for_agent):
+                # Match each container to its placement host
+                if i < len(placements):
+                    host = placements[i][0]
+                else:
+                    host = ctrl.get("host", "localhost")
+
                 try:
                     self._run_cmd(["docker", "stop", container_name], host, user)
                     self._run_cmd(["docker", "rm", container_name], host, user)
                     logger.info("Stopped and removed %s on %s", container_name, host)
                 except Exception as e:
-                    logger.warning("Failed to stop %s: %s", container_name, e)
+                    logger.warning("Failed to stop %s on %s: %s", container_name, host, e)
 
         self.containers.clear()
         logger.info("All Docker containers stopped.")
