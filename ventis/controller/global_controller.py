@@ -381,12 +381,14 @@ class GlobalController(object):
             interval: Seconds between checks.
         """
         deadline = time.time() + timeout
-        pending = [
-            (c["name"], c.get("host", "localhost"), c.get("port", 50051))
-            for c in self.controllers
-        ]
+        # Build a list of every individual replica to check
+        pending = []
+        for c in self.controllers:
+            name = c["name"]
+            for host, port in self._get_replica_placements(c):
+                pending.append((name, host, port))
 
-        logger.info("Waiting for %d controller(s) to become healthy (timeout=%ds)...",
+        logger.info("Waiting for %d replica(s) to become healthy (timeout=%ds)...",
                     len(pending), timeout)
 
         while pending and time.time() < deadline:
@@ -429,35 +431,34 @@ class GlobalController(object):
             self.stop()
 
     def _poll_controllers(self):
-        """Check the health of each registered controller via its node's Redis."""
+        """Check the health of each registered controller replica via its node's Redis."""
         for ctrl in self.controllers:
             name = ctrl["name"]
-            host = ctrl.get("host", "localhost")
-            port = ctrl.get("port", 50051)
-            node_redis = self._get_node_redis_for(host)
-            agent_host = self._agent_host_key(host)
-            status_key = f"controller:{agent_host}:{port}:status"
+            for host, port in self._get_replica_placements(ctrl):
+                node_redis = self._get_node_redis_for(host)
+                agent_host = self._agent_host_key(host)
+                status_key = f"controller:{agent_host}:{port}:status"
 
-            status = node_redis.get(status_key) or "unknown"
-            prev = self._last_status.get((host, port))
+                status = node_redis.get(status_key) or "unknown"
+                prev = self._last_status.get((host, port))
 
-            if status != prev:
-                if status == "healthy":
-                    logger.info("Controller %s (%s:%s) is now healthy.", name, host, port)
-                    self._on_controller_healthy(name, host, port)
+                if status != prev:
+                    if status == "healthy":
+                        logger.info("Controller %s (%s:%s) is now healthy.", name, host, port)
+                        self._on_controller_healthy(name, host, port)
+                    else:
+                        logger.warning(
+                            "Controller %s (%s:%s) status changed: %s -> %s",
+                            name, host, port, prev or "(none)", status,
+                        )
+                        self._on_controller_unhealthy(name, host, port)
+                    self._last_status[(host, port)] = status
                 else:
-                    logger.warning(
-                        "Controller %s (%s:%s) status changed: %s -> %s",
-                        name, host, port, prev or "(none)", status,
-                    )
-                    self._on_controller_unhealthy(name, host, port)
-                self._last_status[(host, port)] = status
-            else:
-                # No change — healthy stays quiet, unhealthy stays quiet too
-                if status == "healthy":
-                    self._on_controller_healthy(name, host, port)
-                else:
-                    self._on_controller_unhealthy(name, host, port)
+                    # No change — healthy stays quiet, unhealthy stays quiet too
+                    if status == "healthy":
+                        self._on_controller_healthy(name, host, port)
+                    else:
+                        self._on_controller_unhealthy(name, host, port)
 
     # ------------------------------------------------------------------ #
     #  Extensibility hooks — override in subclasses                       #
